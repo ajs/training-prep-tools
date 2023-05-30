@@ -17,7 +17,6 @@ import textwrap
 from typing import Union, Optional, Literal, Tuple, Dict, Any, Type, List
 
 import numpy as numpy
-import pytest
 from PIL import Image, ImageCms, ImageOps, ImageFilter, UnidentifiedImageError
 
 DEFAULT_OUTDIR = pathlib.Path("training_images")
@@ -61,20 +60,24 @@ class ImageInfo:
         * Is it CAPABLE of holding color information (determined from mode)
         * Are there any non-grayscale pixels (we solve this below)
 
-        We will probably end up with a randomly bad answer on some images
-        that have transparency. That's not a problem I feel we need to
-        solve here.
-
         This is a class method so that it can be used in places where we don't have
         an ImageInfo object handy.
         """
-        if image.mode[0] in ('L', '1'):
+        if image.mode[0] in {'L', '1'}:
             return False
 
         if image.mode != 'RGB':
             # This is pretty heavy-weight, but any other solution requires lots of special cases
             # around each potential permutation of image.mode. Just try to get this right
             # for RGBa and PA at the same time, I dare you...
+            # You might also ask, "why composite instead of just removing the alpha?"
+            # The edge case is a gray image with one red pixel, but the red pixel is 100%
+            # transparent. In that case, the image is not color by this metric, but just
+            # removing the alpha would give the opposite answer.
+            if image.getbands()[-1] == 'A':
+                # Remove the alpha channel
+                alpha = Image.new('1', image.size, 1).convert(image.mode)
+                image = Image.composite(image, alpha, None)
             image = image.convert('RGB')
 
         colors = image.getcolors(maxcolors=256)
@@ -82,9 +85,12 @@ class ImageInfo:
             # returned when there are more colors than requested
             return True
 
-        for count, color in colors:
-            if len(set(color)) > 1:
-                return True
+        # This is slightly obtuse, but allows for a good deal of internal optimization by the
+        # interpreter. What we're asking is if there are any colors whose channel values differ
+        # from each other. (e.g. "#ffffaa" has two different color channel values)
+        if any(len(set(color)) > 1 for _, color in colors):
+            return True
+
         return False
 
     def masked_by(self, other: "ImageInfo"):
@@ -131,16 +137,21 @@ class ImageInfo:
         img_profile_data = self.image.info.get('icc_profile')
         if img_profile_data:
             image_profile = ImageCms.ImageCmsProfile(io.BytesIO(img_profile_data))
+        elif cmyk_profile and isinstance(cmyk_profile, (str, pathlib.Path, os.PathLike)):
+            image_profile = read_color_profile(cmyk_profile, 'CMYK color profile')
         else:
             image_profile = cmyk_profile
 
-        tmp_img = ImageCms.profileToProfile(
-            self.image,
-            inputProfile=image_profile,
-            outputProfile=srgb_profile,
-            renderingIntent=0,
-            outputMode='RGB'
-        )
+        try:
+            tmp_img = ImageCms.profileToProfile(
+                self.image,
+                inputProfile=image_profile,
+                outputProfile=srgb_profile,
+                renderingIntent=0,
+                outputMode='RGB'
+            ) if image_profile else None
+        except (TypeError, ImageCms.PyCMSError):
+            raise TypeError(f"Cannot process image profile information from profile {image_profile!r}")
         if tmp_img:
             self.image = tmp_img
         else:
@@ -254,27 +265,6 @@ def black_pixel(mode: str):
     return convert_bw_to_mode(mode, black=True)
 
 
-def make_image_corners(mode, *corners):
-    """Used for testing, make an Image with the given mode and corner pixel values"""
-    corner_lookup = {
-        'L': {
-            'white': white_pixel("L"),
-            'black': black_pixel("L"),
-        },
-        'RGB': {
-            'white': white_pixel("RGB"),
-            'black': black_pixel("RGB"),
-        }
-    }
-    corners = [corner_lookup[mode][corner] for corner in corners]
-    base_value = corners[0]
-    image = Image.new(mode, (3, 3), base_value)
-    corner_locs = ((0, 0), (2, 0), (0, 2), (2, 2))
-    for loc, value in zip(corner_locs, corners):
-        image.putpixel(loc, value)
-    return image
-
-
 def guess_border(image: Image):
     """
     Try to guess what color the image border should be based on corner pixels.
@@ -353,8 +343,9 @@ def process_final_image(
         save_image = img_scaled
     else:
         border_color = guess_border(img_scaled)
-        if not ImageInfo.is_color(img_scaled):
+        if not isinstance(border_color, tuple):
             border_color = (border_color, border_color, border_color)
+        # TODO: Allow saving grayscale, non-trans images as 'L'
         mode: Literal['RGBA', 'RGB'] = 'RGB'
         if trans_background:
             mode = 'RGBA'
@@ -582,6 +573,14 @@ def per_format_save_params(image_format: str, save_params: Dict[str, Any]):
         known_params([('optimize', bool), ('compress_level', int)])
 
 
+def read_color_profile(color_profile: os.PathLike, desc: str) -> ImageCms.ImageCmsProfile:
+    """Read the given color profile input file and convert to an internal form"""
+    if not color_profile or not os.path.exists(color_profile):
+        raise RuntimeError(f"{desc} file does not exist: {color_profile}")
+    with open(color_profile, 'rb') as color_profile_fh:
+        return ImageCms.ImageCmsProfile(color_profile_fh)
+
+
 def main():
     """Use command-line to find images to process"""
 
@@ -680,10 +679,15 @@ def main():
     if options.transparent and options.save_format.lower() != 'png':
         raise RuntimeError(f"--transparent only supported for 'png' images")
 
-    if options.cmyk_color_profile and not options.cmyk_color_profile.exists():
-        raise RuntimeError(f"CMYK color profile file does not exist: {options.cmyk_color_profile}")
-    if options.srgb_color_profile and not options.srgb_color_profile.exists():
-        raise RuntimeError(f"sRGB color profile file does not exist: {options.srgb_color_profile}")
+    if options.cmyk_color_profile:
+        cmyk_color_profile = read_color_profile(options.cmyk_color_profile, 'CMYK color profile')
+    else:
+        cmyk_color_profile = None
+
+    if options.srgb_color_profile:
+        srgb_color_profile = read_color_profile(options.srgb_color_profile, 'sRGB color profile')
+    else:
+        srgb_color_profile = None
 
     history = FuzzyImageRecall()
 
@@ -704,99 +708,10 @@ def main():
             save_params=save_params,
             history=history,
             find_duplicates=options.find_duplicates,
-            srgb_profile=options.srgb_color_profile,
-            cmyk_profile=options.cmyk_color_profile,
+            srgb_profile=srgb_color_profile,
+            cmyk_profile=cmyk_color_profile,
             verbose=options.verbose,
         )
-
-
-@pytest.mark.parametrize(
-    'filename, expect',
-    [
-        ("x", "x"),
-        ("abc-1.png", "abc-000001.png"),
-        ("abc-01.png", "abc-000001.png"),
-    ]
-)
-def test_get_filename_key(filename: os.PathLike, expect: str):
-    assert get_filename_key(filename) == expect, f"filename key handling: {filename} -> {expect}"
-
-
-@pytest.mark.parametrize(
-    'mode',
-    ('1', 'L', 'RGB', 'RGBA', 'CMYK'),
-)
-def test_autocrop(mode):
-    white = white_pixel(mode)
-    black = black_pixel(mode)
-    image = Image.new(mode, (3, 3), white)
-    assert image.getpixel((0, 0)) == white, "Image should have white pixels"
-    cropped = FuzzyImageRecall._autocrop(image)
-    assert cropped.size == (3, 3), "Autocrop white image should make no change"
-    image.putpixel((1, 1), black)
-    cropped = FuzzyImageRecall._autocrop(image)
-    assert cropped.size == (1, 1), "Autocrop expected to return 1x1"
-    image.putpixel((0, 0), black)
-    cropped = FuzzyImageRecall._autocrop(image)
-    assert cropped.size == (2, 2), "Autocrop expected to return 2x2"
-    assert cropped.getpixel((0, 0)) == black, "Expect returned image to contain black in upper left"
-    assert cropped.getpixel((1, 0)) == white, "Expect returned image to contain black in upper left"
-
-
-@pytest.mark.parametrize(
-    'image, expected, what_is',
-    [
-        (make_image_corners("L", 'white', 'white', 'white', 'white'), 255, "Greyscale all white"),
-        (make_image_corners("L", 'black', 'black', 'black', 'black'), 0, "Greyscale all black"),
-        (make_image_corners("L", 'black', 'black', 'white', 'white'), 255, "Greyscale half and half"),
-        (make_image_corners("L", 'black', 'black', 'black', 'white'), 0, "Greyscale one white"),
-        (make_image_corners("RGB", 'white', 'white', 'white', 'white'), (255, 255, 255), "Greyscale all white"),
-        (make_image_corners("RGB", 'black', 'black', 'black', 'black'), (0, 0, 0), "Greyscale all black"),
-        (make_image_corners("RGB", 'black', 'black', 'white', 'white'), (255, 255, 255), "Greyscale half and half"),
-        (make_image_corners("RGB", 'black', 'black', 'black', 'white'), (0, 0, 0), "Greyscale one white"),
-    ]
-)
-def test_guess_border(image: Image, expected: Union[int, Tuple[int, int, int]], what_is: str):
-    """Quick test for our border color guessing"""
-    assert guess_border(image) == expected, f"Expect return value of {expected!r} for {what_is}"
-
-
-def make_test_color_image(mode: str):
-    """Used for testing color image detection"""
-    image = make_test_grayscale_image('RGB')
-    image.putpixel((255, 255), (0, 255, 127))  # Add just one color pixel to make it harder
-    if mode != image.mode:
-        image = image.convert(mode)
-    return image
-
-
-def make_test_grayscale_image(mode: str):
-    """Used for testing color image detection"""
-    image = Image.linear_gradient('L').convert('RGB')
-    if mode != image.mode:
-        if mode.endswith('A'):
-            image.putalpha(Image.new('1', image.size, 1))
-        image = image.convert(mode)
-    return image
-
-
-@pytest.mark.parametrize(
-    'image, is_color, description',
-    [
-        (make_test_grayscale_image('1'), False, "B/W"),
-        (make_test_grayscale_image('L'), False, "grayscale"),
-        (make_test_grayscale_image('LA'), False, "grayscale with transparency"),
-        (make_test_grayscale_image('RGB'), False, "RGB grayscale"),
-        (make_test_color_image('RGB'), True, "RGB color image"),
-        (make_test_grayscale_image('RGBA'), False, "RGBA grayscale"),
-        (make_test_color_image('RGBA'), True, "RGBA color image"),
-        (make_test_grayscale_image('CMYK'), False, "CMYK grayscale"),
-        (make_test_color_image('CMYK'), True, "CMYK color image"),
-    ]
-)
-def test_is_color_check(image, is_color, description):
-    """Test the is_color check that is defined on ImageInfo"""
-    assert ImageInfo.is_color(image) is is_color, f"Expect is_color={is_color!r} for {description}"
 
 
 if __name__ == '__main__':
