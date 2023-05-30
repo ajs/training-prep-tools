@@ -23,6 +23,9 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[tool.setuptools]
+py-modules = ["training_prep_tools"]
+
 [tool.setuptools.dynamic]
 version = {attr = "training_prep_tools.VERSION"}
 
