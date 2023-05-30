@@ -1,4 +1,5 @@
-# A very simple script that finds images that are consecutive with masks in a directory,
+"""A very simple script that finds images that are consecutive with masks in a directory"""
+
 # applies the mask and puts the image on an appropriate background, scaling it to fit inside
 # a 512x512 (or other size given by the -s flag) frame
 
@@ -16,7 +17,7 @@ import re
 import textwrap
 from typing import Union, Optional, Literal, Tuple, Dict, Any, Type, List
 
-import numpy as numpy
+import numpy
 from PIL import Image, ImageCms, ImageOps, ImageFilter, UnidentifiedImageError
 
 DEFAULT_OUTDIR = pathlib.Path("training_images")
@@ -47,10 +48,12 @@ class ImageInfo:
 
     @property
     def width(self):
+        """The image width"""
         return self.image.width
 
     @property
     def height(self):
+        """The image height"""
         return self.image.height
 
     @classmethod
@@ -151,6 +154,7 @@ class ImageInfo:
                 outputMode='RGB'
             ) if image_profile else None
         except (TypeError, ImageCms.PyCMSError):
+            # pylint: disable=raise-missing-from
             raise TypeError(f"Cannot process image profile information from profile {image_profile!r}")
         if tmp_img:
             self.image = tmp_img
@@ -211,18 +215,18 @@ class FuzzyImageRecall:
             cols = range(upper_left_x, lower_right_x)
             if from_end:
                 cols = reversed(cols)
-            for x in cols:
-                if numpy.any(np_image[:, x] != white):
-                    return x
+            for x_but_fucking_pylint_requires_snakecase in cols:
+                if numpy.any(np_image[:, x_but_fucking_pylint_requires_snakecase] != white):
+                    return x_but_fucking_pylint_requires_snakecase
             return None
 
         def first_row(from_end=False):
             rows = range(upper_left_y, lower_right_y)
             if from_end:
                 rows = reversed(rows)
-            for y in rows:
-                if numpy.any(np_image[y, :] != white):
-                    return y
+            for y_but_fucking_pylint_requires_snakecase in rows:
+                if numpy.any(np_image[y_but_fucking_pylint_requires_snakecase, :] != white):
+                    return y_but_fucking_pylint_requires_snakecase
             return None
 
         upper_left_x = first_column()
@@ -238,6 +242,7 @@ class FuzzyImageRecall:
         try:
             return image.crop(rect)
         except IndexError:
+            # pylint: disable=raise-missing-from
             raise RuntimeError(f"Unable to crop image {image.width}x{image.height} to: {rect!r}")
 
     def add(self, image: Image):
@@ -292,6 +297,8 @@ def guess_border(image: Image):
     return sorted(vote.keys(), key=lambda x: pixel_order(x, vote[x]))[-1]
 
 
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
 def process_final_image(
         image: Image,
         img_hash: FuzzyImageRecall,
@@ -345,7 +352,7 @@ def process_final_image(
         border_color = guess_border(img_scaled)
         if not isinstance(border_color, tuple):
             border_color = (border_color, border_color, border_color)
-        # TODO: Allow saving grayscale, non-trans images as 'L'
+        # 2 doo: Allow saving grayscale, non-trans images as 'L'
         mode: Literal['RGBA', 'RGB'] = 'RGB'
         if trans_background:
             mode = 'RGBA'
@@ -520,7 +527,7 @@ def process_img_dir(
         if max(info.width, info.height) <= small_image:
             bump('small')
             if not find_duplicates:
-                print(f"  skipping small image")
+                print("  skipping small image")
             continue
         if previous and not previous.is_mask:
             filename = os.path.join(outdir, os.path.basename(previous.file_path))
@@ -666,7 +673,7 @@ def main():
     options = parser.parse_args()
 
     if options.unmasked and options.all:
-        raise RuntimeError(f"Cannot combine --all and --unmasked, choose one.")
+        raise RuntimeError("Cannot combine --all and --unmasked, choose one.")
 
     save_format = options.save_format.lower() if options.save_format else 'png'
 
@@ -677,7 +684,7 @@ def main():
         save_params = None
 
     if options.transparent and options.save_format.lower() != 'png':
-        raise RuntimeError(f"--transparent only supported for 'png' images")
+        raise RuntimeError("--transparent only supported for 'png' images")
 
     if options.cmyk_color_profile:
         cmyk_color_profile = read_color_profile(options.cmyk_color_profile, 'CMYK color profile')

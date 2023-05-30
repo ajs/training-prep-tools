@@ -1,0 +1,3 @@
+[MAIN]
+max-line-length=128
+disable=use-dict-literal,no-else-continue,too-many-branches,too-many-statements

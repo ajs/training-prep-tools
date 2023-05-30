@@ -1,3 +1,5 @@
+"""Tests"""
+
 import os
 from typing import Union, Tuple
 
@@ -17,6 +19,7 @@ from training_prep_tools.process_training_images import ImageInfo, white_pixel, 
     ]
 )
 def test_get_filename_key(filename: os.PathLike, expect: str):
+    """Test the get_filename_key function"""
     assert get_filename_key(filename) == expect, f"filename key handling: {filename} -> {expect}"
 
 
@@ -25,10 +28,12 @@ def test_get_filename_key(filename: os.PathLike, expect: str):
     ('1', 'L', 'RGB', 'RGBA', 'CMYK'),
 )
 def test_autocrop(mode):
+    """Test the autocrop facility"""
     white = white_pixel(mode)
     black = black_pixel(mode)
     image = Image.new(mode, (3, 3), white)
     assert image.getpixel((0, 0)) == white, "Image should have white pixels"
+    # pylint: disable=protected-access
     cropped = FuzzyImageRecall._autocrop(image)
     assert cropped.size == (3, 3), "Autocrop white image should make no change"
     image.putpixel((1, 1), black)
