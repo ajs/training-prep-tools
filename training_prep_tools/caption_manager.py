@@ -98,7 +98,7 @@ def get_yaml_contents(yaml_file: pathlib.Path):
 def process_source_tree(
         source: pathlib.Path,
         target: pathlib.Path,
-        config_values: Dict[str, str] | None = None,
+        config_values: Optional[Dict[str, str]] = None,
         preserve_captions: bool = False,
         flat_target: bool = False,
 ) -> None:
