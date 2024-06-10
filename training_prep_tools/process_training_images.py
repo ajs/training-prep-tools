@@ -540,7 +540,11 @@ def process_img_dir(
                     white_color = white_pixel(previous.image.mode)
                     if len(white_color) == 3 and trans_background:
                         white_color = white_color + (0,)
-                    img_masked = mask_image(previous.image, info.image, background=white_color)
+                    try:
+                        img_masked = mask_image(previous.image, info.image, background=white_color)
+                    except ValueError as err:
+                        print(f"  attempt to mask image failed for: {filename}: {err!r}")
+                        continue
                     if verbose:
                         print(f"  image fuzzy hash: {history.hash_repr(img_masked)}")
                     img_report(safe_process_final_image(img_masked, filename=filename, **process_args))
