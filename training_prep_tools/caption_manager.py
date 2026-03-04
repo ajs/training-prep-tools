@@ -1,4 +1,4 @@
-"""A quick and dirty YAML-based caption creator"""
+"""A YAML-based caption creator for AI training image datasets"""
 
 import argparse
 import logging
