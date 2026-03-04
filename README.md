@@ -31,7 +31,7 @@ it to understand via YAML files, but this is the basic process it goes through:
 
 1. Read the `caption_config.yaml` in every directory in your source tree
 2. Read the `<image>.yaml` file for every `<image>.png` file in your source tree
-3. Write an `<image>.txt` file to teh target tree (defaults to the source tree) to go with the `<image>.png`
+3. Write an `<image>.txt` file to the target tree (defaults to the source tree) to go with the `<image>.png`
 
 At step 3, all of the information from all of the `caption_config.yaml` files in the image's directory
 and above will be merged and combined with this image's `<image>.yaml` file.

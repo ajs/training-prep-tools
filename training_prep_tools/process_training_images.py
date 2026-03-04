@@ -153,9 +153,10 @@ class ImageInfo:
                 renderingIntent=0,
                 outputMode='RGB'
             ) if image_profile else None
-        except (TypeError, ImageCms.PyCMSError):
-            # pylint: disable=raise-missing-from
-            raise TypeError(f"Cannot process image profile information from profile {image_profile!r}")
+        except (TypeError, ImageCms.PyCMSError) as err:
+            raise TypeError(
+                f"Cannot process image profile information from profile {image_profile!r}"
+            ) from err
         if tmp_img:
             self.image = tmp_img
         else:
@@ -192,7 +193,7 @@ class FuzzyImageRecall:
         # Note that we don't respect aspect ratio. This is by design and allows us to
         # detect some stretching between copies.
         blurred_10x10 = self._autocrop(image).convert("L").filter(
-            ImageFilter.GaussianBlur(radius=blur_radius)).resize((10, 10), Image.LANCZOS)
+            ImageFilter.GaussianBlur(radius=blur_radius)).resize((10, 10), Image.Resampling.LANCZOS)
         simplified = blurred_10x10.quantize(colors=16)
         return tuple(simplified.getdata())
 
@@ -215,18 +216,18 @@ class FuzzyImageRecall:
             cols = range(upper_left_x, lower_right_x)
             if from_end:
                 cols = reversed(cols)
-            for x_but_fucking_pylint_requires_snakecase in cols:
-                if numpy.any(np_image[:, x_but_fucking_pylint_requires_snakecase] != white):
-                    return x_but_fucking_pylint_requires_snakecase
+            for col_idx in cols:
+                if numpy.any(np_image[:, col_idx] != white):
+                    return col_idx
             return None
 
         def first_row(from_end=False):
             rows = range(upper_left_y, lower_right_y)
             if from_end:
                 rows = reversed(rows)
-            for y_but_fucking_pylint_requires_snakecase in rows:
-                if numpy.any(np_image[y_but_fucking_pylint_requires_snakecase, :] != white):
-                    return y_but_fucking_pylint_requires_snakecase
+            for row_idx in rows:
+                if numpy.any(np_image[row_idx, :] != white):
+                    return row_idx
             return None
 
         upper_left_x = first_column()
@@ -241,9 +242,8 @@ class FuzzyImageRecall:
         rect = (upper_left_x, upper_left_y, lower_right_x + 1, lower_right_y + 1)
         try:
             return image.crop(rect)
-        except IndexError:
-            # pylint: disable=raise-missing-from
-            raise RuntimeError(f"Unable to crop image {image.width}x{image.height} to: {rect!r}")
+        except IndexError as err:
+            raise RuntimeError(f"Unable to crop image {image.width}x{image.height} to: {rect!r}") from err
 
     def add(self, image: Image):
         """Add the given image to our tracking"""
@@ -297,10 +297,9 @@ def guess_border(image: Image):
     return sorted(vote.keys(), key=lambda x: pixel_order(x, vote[x]))[-1]
 
 
-# pylint: disable=too-many-arguments
-# pylint: disable=too-many-locals
 def process_final_image(
         image: Image,
+        *,
         img_hash: FuzzyImageRecall,
         filename=None,
         output_dir: os.PathLike = DEFAULT_OUTDIR,
@@ -352,7 +351,7 @@ def process_final_image(
         border_color = guess_border(img_scaled)
         if not isinstance(border_color, tuple):
             border_color = (border_color, border_color, border_color)
-        # 2 doo: Allow saving grayscale, non-trans images as 'L'
+        # TODO: Allow saving grayscale, non-trans images as 'L'
         mode: Literal['RGBA', 'RGB'] = 'RGB'
         if trans_background:
             mode = 'RGBA'
@@ -428,6 +427,7 @@ def summarize_status(status: Dict[str, int]):
 
 def process_img_dir(
         img_dir: os.PathLike,
+        *,
         outdir: os.PathLike = DEFAULT_OUTDIR,
         output_size: int = DEFAULT_SIZE,
         minimum_quality: float = DEFAULT_QUALITY,
@@ -445,7 +445,7 @@ def process_img_dir(
 ):
     """
     Find and label all images in `img_dir`
-    :param img_dir: the path to a directory containing consectuively numbered image files from a PDF
+    :param img_dir: the path to a directory containing consecutively numbered image files from a PDF
         (extracted using pdfimages)
     :param outdir: optional directory to store results
     :param output_size: the size (in width and height) of output images

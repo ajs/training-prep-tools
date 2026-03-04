@@ -23,6 +23,12 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+dev = [
+    "pylint",
+    "pytest",
+]
+
 [tool.setuptools]
 py-modules = ["training_prep_tools"]
 
@@ -32,3 +38,6 @@ version = {attr = "training_prep_tools.VERSION"}
 [project.scripts]
 process-training-images = "training_prep_tools.process_training_images:main"
 caption-manager = "training_prep_tools.caption_manager:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
